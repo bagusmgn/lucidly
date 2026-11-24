@@ -54,3 +54,18 @@ h1{font-size:28px;margin:6px 4px 16px;letter-spacing:-.5px}
 .f textarea{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--inp);color:var(--text);font:12px/1.4 ui-monospace,Menlo,monospace;outline:none;resize:vertical}
 .go.alt{background:var(--inp);color:var(--text);border:1px solid var(--line)}
 .msg{font-size:13px;color:var(--sub);margin-top:10px}
+
+.mnav{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;margin-bottom:14px;border-radius:20px}
+.mnav b{font-size:15px;text-transform:capitalize}
+.mnav button{width:36px;height:36px;border-radius:50%;border:0;background:var(--glass2);color:var(--text);font-size:14px;cursor:pointer}
+.mnav button:disabled{opacity:.35;cursor:default}
+.tx{cursor:pointer}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));display:flex;gap:14px;align-items:center;padding:12px 18px;border-radius:99px;z-index:20;font-size:14px;white-space:nowrap}
+.toast button{border:0;background:none;color:var(--acc);font:inherit;font-weight:600;cursor:pointer}
+
+.hdb{display:flex;gap:8px}
+.lnk:disabled{opacity:.4;cursor:default}
+.mlist{max-height:30vh;overflow:auto;margin-bottom:12px}
+.mrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 2px;border-top:1px solid var(--line);font-size:15px}
+.mrow:first-of-type{border-top:0}
+.del:disabled{opacity:.3;cursor:default}

@@ -1,11 +1,26 @@
-import type { Backup, Budgets, Recurring, Transaction, TxType } from "../types";
+import type { Backup, Budgets, Categories, Recurring, Transaction, Transfer, TxType, Wallet } from "../types";
 
 export const CATS: Record<TxType, [string, string][]> = {
   expense: [["Makan", "🍜"], ["Transport", "🚗"], ["Belanja", "🛍️"], ["Tagihan", "🧾"], ["Hiburan", "🎬"], ["Lainnya", "📦"]],
   income: [["Gaji", "💼"], ["Bonus", "🎁"], ["Investasi", "📈"], ["Lainnya", "💰"]],
 };
 
-export const icon = (t: TxType, c: string) => CATS[t].find((x) => x[0] === c)?.[1] ?? "💸";
+export const icon = (cats: Categories, t: TxType, c: string) => cats[t].find((x) => x[0] === c)?.[1] ?? "💸";
+
+/** Dompet efektif sebuah transaksi; tanpa/dengan walletId tidak dikenal jatuh ke dompet pertama. */
+export const walletIdOf = (t: { walletId?: number }, wallets: Wallet[]): number =>
+  t.walletId !== undefined && wallets.some((w) => w.id === t.walletId) ? t.walletId : wallets[0].id;
+
+export function walletBalances(wallets: Wallet[], tx: Transaction[], transfers: Transfer[]) {
+  const bal: Record<number, number> = {};
+  for (const w of wallets) bal[w.id] = w.initial;
+  for (const t of tx) bal[walletIdOf(t, wallets)] += t.type === "income" ? t.amount : -t.amount;
+  for (const f of transfers) {
+    if (f.from in bal) bal[f.from] -= f.amount;
+    if (f.to in bal) bal[f.to] += f.amount;
+  }
+  return bal;
+}
 
 export const rp = (n: number) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
@@ -23,29 +38,42 @@ export const fmtDate = (d: string) =>
 export const sortTx = (l: Transaction[]) => [...l].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
 
 /* ---------- ringkasan & tren ---------- */
+/** balance = saldo semua waktu; inc/exp/monthExp = untuk bulan terpilih. */
 export function summarize(tx: Transaction[], monthKey: string) {
+  let balance = 0;
   let inc = 0;
   let exp = 0;
-  const all: Record<string, number> = {};
   const monthExp: Record<string, number> = {};
   for (const t of tx) {
+    balance += t.type === "income" ? t.amount : -t.amount;
+    if (t.date.slice(0, 7) !== monthKey) continue;
     if (t.type === "income") inc += t.amount;
     else {
       exp += t.amount;
-      all[t.category] = (all[t.category] ?? 0) + t.amount;
-      if (t.date.slice(0, 7) === monthKey) monthExp[t.category] = (monthExp[t.category] ?? 0) + t.amount;
+      monthExp[t.category] = (monthExp[t.category] ?? 0) + t.amount;
     }
   }
-  const byCat = Object.entries(all).sort((a, b) => b[1] - a[1]);
-  return { inc, exp, byCat, monthExp };
+  return { balance, inc, exp, monthExp };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
-export function monthTrend(tx: Transaction[], n = 6) {
-  const now = new Date();
+export function monthLabel(k: string) {
+  const [y, m] = k.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+}
+
+export function shiftMonth(k: string, delta: number) {
+  const [y, m] = k.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+}
+
+/** Tren n bulan yang berakhir di endKey (YYYY-MM). */
+export function monthTrend(tx: Transaction[], endKey: string, n = 6) {
+  const [ey, em] = endKey.split("-").map(Number);
   return Array.from({ length: n }, (_, i) => {
-    const x = new Date(now.getFullYear(), now.getMonth() - (n - 1 - i), 1);
+    const x = new Date(ey, em - 1 - (n - 1 - i), 1);
     const key = `${x.getFullYear()}-${pad(x.getMonth() + 1)}`;
     let inc = 0;
     let exp = 0;
@@ -80,7 +108,7 @@ export function runRecurring(recs: Recurring[], td: string) {
     while (last < cur && guard++ < 24) {
       const k = nextMonth(last);
       if (k === cur && r.day > dn) break;
-      txs.push({ id: Date.now() + n++, type: r.type, amount: r.amount, category: r.category, note: r.note, date: `${k}-${pad(r.day)}` });
+      txs.push({ id: Date.now() + n++, type: r.type, amount: r.amount, category: r.category, note: r.note, walletId: r.walletId, date: `${k}-${pad(r.day)}` });
       last = k;
     }
     return last === r.last ? r : { ...r, last };
@@ -107,6 +135,7 @@ export function parseBackup(raw: unknown): Backup {
       category: String(t.category || "Lainnya"),
       note: String(t.note || ""),
       date: String(t.date).slice(0, 10),
+      walletId: Number(t.walletId) || undefined,
     }));
   const out: Backup = { version: 1, tx: sortTx(tx) };
   if (d.budgets && typeof d.budgets === "object") {
@@ -125,9 +154,35 @@ export function parseBackup(raw: unknown): Backup {
         amount: Number(r.amount),
         category: String(r.category || "Lainnya"),
         note: String(r.note || ""),
+        walletId: Number(r.walletId) || undefined,
         day: Math.round(Number(r.day)),
         last: r.last as string,
       }));
+  }
+  if (d.categories && typeof d.categories === "object") {
+    const c = d.categories as Record<string, unknown>;
+    const clean = (v: unknown): [string, string][] =>
+      Array.isArray(v)
+        ? v.filter((x) => Array.isArray(x) && typeof x[0] === "string" && x[0].trim()).map((x) => [String(x[0]).trim(), String(x[1] || "📦")] as [string, string])
+        : [];
+    const expense = clean(c.expense);
+    const income = clean(c.income);
+    if (expense.length && income.length) out.categories = { expense, income };
+  }
+  if (Array.isArray(d.wallets)) {
+    const wallets = d.wallets
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((w: any) => w && Number(w.id) && typeof w.name === "string" && w.name.trim())
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((w: any) => ({ id: Number(w.id), name: String(w.name).trim(), icon: String(w.icon || "👛"), initial: Math.max(0, Number(w.initial) || 0) }));
+    if (wallets.length) out.wallets = wallets;
+  }
+  if (Array.isArray(d.transfers)) {
+    out.transfers = d.transfers
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((t: any) => t && Number(t.from) && Number(t.to) && Number(t.amount) > 0 && typeof t.date === "string")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((t: any, i: number) => ({ id: Number(t.id) || Date.now() + i, from: Number(t.from), to: Number(t.to), amount: Math.round(Number(t.amount)), date: String(t.date).slice(0, 10), note: String(t.note || "") }));
   }
   return out;
 }
