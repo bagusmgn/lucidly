@@ -44,6 +44,9 @@ export default function App() {
   const list = tx.filter((t) => tab === "all" || t.type === tab);
   const budgetList = Object.entries(budgets);
   const warns = budgetList.filter(([c, b]) => (monthExp[c] ?? 0) / b >= 0.8);
+  const totalBudget = budgetList.reduce((sum, [, b]) => sum + b, 0);
+  const totalSpent = budgetList.reduce((sum, [c]) => sum + (monthExp[c] ?? 0), 0);
+  const totalRatio = totalBudget > 0 ? totalSpent / totalBudget : 0;
 
   const getJson = () => JSON.stringify({ version: 1, tx, budgets, recurring: recs }, null, 2);
   const doImport = (raw: unknown) => {
@@ -79,6 +82,20 @@ export default function App() {
 
       <div className="sec glass">
         <div className="hd"><h2>Anggaran bulan ini</h2><button className="lnk" onClick={() => setSheet("budget")}>Atur</button></div>
+        {budgetList.length > 0 && (
+          <div className="mini" style={{ marginBottom: 14 }}>
+            <div className="top" style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+              <b>Total anggaran</b>
+              <span style={totalRatio > 1 ? { color: "var(--exp)" } : undefined}>{rp(totalSpent)} / {rp(totalBudget)}</span>
+            </div>
+            <div className="bar">
+              <i style={{ width: `${Math.min(100, Math.round(totalRatio * 100))}%`, background: totalRatio > 1 ? "var(--exp)" : totalRatio >= 0.8 ? "#ffb020" : "var(--acc)" }} />
+            </div>
+            <div className="lbl" style={{ marginTop: 4 }}>
+              {totalRatio > 1 ? `Melebihi ${rp(totalSpent - totalBudget)}` : `Sisa ${rp(totalBudget - totalSpent)}`} · {Math.round(totalRatio * 100)}% terpakai
+            </div>
+          </div>
+        )}
         {budgetList.length === 0 ? (
           <div className="empty">Belum ada anggaran. Tekan Atur untuk menetapkan batas per kategori.</div>
         ) : (

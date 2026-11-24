@@ -22,6 +22,21 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** Input nominal: hanya angka, otomatis diberi titik ribuan (1.600.000). State menyimpan digit murni. */
+function AmountInput({ value, onChange, autoFocus }: { value: string; onChange: (digits: string) => void; autoFocus?: boolean }) {
+  const shown = value ? Number(value).toLocaleString("id-ID") : "";
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="0"
+      autoFocus={autoFocus}
+      value={shown}
+      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0, 12))}
+    />
+  );
+}
+
 function TypeSeg({ type, onPick }: { type: TxType; onPick: (t: TxType) => void }) {
   return (
     <div className="seg">
@@ -57,7 +72,7 @@ export function TxForm({ onSave, onClose }: { onSave: (t: Transaction) => void; 
   return (
     <Sheet title="Transaksi baru" onClose={onClose}>
       <TypeSeg type={type} onPick={pick} />
-      <Field label="Jumlah (Rp)"><input type="number" inputMode="numeric" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+      <Field label="Jumlah (Rp)"><AmountInput value={amount} onChange={setAmount} autoFocus /></Field>
       <Field label="Kategori"><CatSelect type={type} value={category} onChange={setCategory} /></Field>
       <Field label="Catatan"><input type="text" placeholder="Opsional" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       <Field label="Tanggal"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
@@ -86,7 +101,7 @@ export function RecForm({ onSave, onClose }: { onSave: (r: Recurring) => void; o
   return (
     <Sheet title="Transaksi berulang" onClose={onClose}>
       <TypeSeg type={type} onPick={pick} />
-      <Field label="Jumlah (Rp)"><input type="number" inputMode="numeric" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+      <Field label="Jumlah (Rp)"><AmountInput value={amount} onChange={setAmount} /></Field>
       <Field label="Kategori"><CatSelect type={type} value={category} onChange={setCategory} /></Field>
       <Field label="Catatan"><input type="text" placeholder="Contoh: Sewa kos" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       <Field label="Setiap tanggal (1-28)"><input type="number" min={1} max={28} value={day} onChange={(e) => setDay(e.target.value)} /></Field>
@@ -104,7 +119,7 @@ export function BudgetForm({ budgets, onSave, onClose }: { budgets: Record<strin
     <Sheet title="Anggaran bulanan" onClose={onClose}>
       <Field label="Kategori"><CatSelect type="expense" value={cat} onChange={change} /></Field>
       <Field label="Batas per bulan (Rp), kosongkan untuk menghapus">
-        <input type="number" inputMode="numeric" placeholder="0" value={amt} onChange={(e) => setAmt(e.target.value)} />
+        <AmountInput value={amt} onChange={setAmt} />
       </Field>
       <button className="go" onClick={() => { onSave(cat, Number(amt) || 0); onClose(); }}>Simpan</button>
     </Sheet>
