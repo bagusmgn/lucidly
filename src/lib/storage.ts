@@ -2,7 +2,7 @@ import type { Budgets, Categories, Recurring, Transaction, Transfer, Wallet } fr
 import { CATS } from "./domain";
 
 // Adapter penyimpanan. Untuk pindah ke backend, ganti load/save dengan pemanggilan API.
-function createStore<T>(key: string, fallback: () => T, valid: (v: unknown) => boolean) {
+export function createStore<T>(key: string, fallback: () => T, valid: (v: unknown) => boolean) {
   return {
     load(): T {
       try {
@@ -43,3 +43,4 @@ export const walletStorage = createStore<Wallet[]>(
   (v) => Array.isArray(v) && v.length > 0,
 );
 export const transferStorage = createStore<Transfer[]>("glass-finance:transfers:v1", () => [], isArray);
+export const hideStorage = createStore<boolean>("glass-finance:hide:v1", () => false, (v) => typeof v === "boolean");

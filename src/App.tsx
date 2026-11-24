@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
 import type { Budgets, Categories, Recurring, Transaction, Transfer, TxType, Wallet } from "./types";
-import { budgetStorage, categoryStorage, recurringStorage, transferStorage, txStorage, walletStorage } from "./lib/storage";
+import { budgetStorage, categoryStorage, hideStorage, recurringStorage, transferStorage, txStorage, walletStorage } from "./lib/storage";
 import { fmtDate, icon, monthLabel, monthTrend, parseBackup, rp, runRecurring, shiftMonth, sortTx, summarize, today, walletBalances, walletIdOf } from "./lib/domain";
 import { Donut, PALETTE, Trend } from "./components/Charts";
 import { BudgetForm, DataSheet, RecForm, TxForm } from "./components/Sheets";
+import { EyeIcon, PaletteIcon } from "./components/Icons";
+import { ThemeSheet } from "./components/ThemeSheet";
+import { useTheme } from "./lib/theme";
 import { CategorySheet, TransferSheet, WalletSheet } from "./components/Manage";
 
 type Action =
@@ -33,7 +36,9 @@ export default function App() {
   const [budgets, setBudgets] = useState<Budgets>(() => budgetStorage.load());
   const [recs, setRecs] = useState<Recurring[]>(init.recs);
   const [tab, setTab] = useState<"all" | TxType>("all");
-  const [sheet, setSheet] = useState<null | "tx" | "budget" | "rec" | "data" | "cats" | "wallets" | "transfer">(null);
+  const [sheet, setSheet] = useState<null | "tx" | "budget" | "rec" | "data" | "cats" | "wallets" | "transfer" | "theme">(null);
+  const [theme, setTheme] = useTheme();
+  const [hidden, setHidden] = useState(() => hideStorage.load());
   const [cats, setCats] = useState<Categories>(() => categoryStorage.load());
   const [wallets, setWallets] = useState<Wallet[]>(() => walletStorage.load());
   const [transfers, setTransfers] = useState<Transfer[]>(() => transferStorage.load());
@@ -45,6 +50,7 @@ export default function App() {
   useEffect(() => budgetStorage.save(budgets), [budgets]);
   useEffect(() => recurringStorage.save(recs), [recs]);
   useEffect(() => categoryStorage.save(cats), [cats]);
+  useEffect(() => hideStorage.save(hidden), [hidden]);
   useEffect(() => walletStorage.save(wallets), [wallets]);
   useEffect(() => transferStorage.save(transfers), [transfers]);
   useEffect(() => {
@@ -67,6 +73,7 @@ export default function App() {
 
   const balances = useMemo(() => walletBalances(wallets, tx, transfers), [wallets, tx, transfers]);
   const totalBalance = Object.values(balances).reduce((a, b) => a + b, 0);
+  const money = (n: number) => (hidden ? "Rp ••••••" : rp(n));
   const wName = (id: number) => wallets.find((w) => w.id === id)?.name ?? "?";
   const used = useMemo(() => {
     const u = new Set<number>();
@@ -93,7 +100,10 @@ export default function App() {
 
   return (
     <>
-      <h1>Lucidly</h1>
+      <div className="hd" style={{ marginBottom: 0 }}>
+        <h1>Lucidly</h1>
+        <button className="eye" aria-label="Atur tema" onClick={() => setSheet("theme")}><PaletteIcon /></button>
+      </div>
 
       <div className="mnav glass">
         <button aria-label="Bulan sebelumnya" onClick={() => setMonth((m) => shiftMonth(m, -1))}>◀</button>
@@ -111,11 +121,16 @@ export default function App() {
       )}
 
       <div className="hero glass">
-        <div className="lbl">Total saldo</div>
-        <div className="bal">{rp(totalBalance)}</div>
+        <div className="hd" style={{ marginBottom: 0 }}>
+          <span className="lbl">Total saldo</span>
+          <button className="eye" aria-label={hidden ? "Tampilkan nominal" : "Sembunyikan nominal"} aria-pressed={hidden} onClick={() => setHidden((h) => !h)}>
+            <EyeIcon off={hidden} />
+          </button>
+        </div>
+        <div className="bal">{money(totalBalance)}</div>
         <div className="row">
-          <div className="mini"><span className="lbl">Pemasukan</span><b className="inc">{rp(inc)}</b></div>
-          <div className="mini"><span className="lbl">Pengeluaran</span><b className="exp">{rp(exp)}</b></div>
+          <div className="mini"><span className="lbl">Pemasukan</span><b className="inc">{money(inc)}</b></div>
+          <div className="mini"><span className="lbl">Pengeluaran</span><b className="exp">{money(exp)}</b></div>
         </div>
       </div>
 
@@ -128,7 +143,7 @@ export default function App() {
           </div>
         </div>
         {wallets.map((w) => (
-          <div className="mrow" key={w.id}><span>{w.icon} {w.name}</span><b>{rp(balances[w.id] ?? 0)}</b></div>
+          <div className="mrow" key={w.id}><span>{w.icon} {w.name}</span><b>{money(balances[w.id] ?? 0)}</b></div>
         ))}
         {transfers.length > 0 && (
           <>
@@ -268,6 +283,7 @@ export default function App() {
       {sheet === "rec" && <RecForm cats={cats} wallets={wallets} onSave={(r) => setRecs((x) => [...x, r])} onClose={close} />}
       {sheet === "data" && <DataSheet getJson={getJson} onImport={doImport} onClose={close} />}
       {sheet === "cats" && <CategorySheet cats={cats} onChange={setCats} onClose={close} />}
+      {sheet === "theme" && <ThemeSheet theme={theme} onChange={setTheme} onClose={close} />}
       {sheet === "wallets" && <WalletSheet wallets={wallets} balances={balances} used={used} onChange={setWallets} onClose={close} />}
       {sheet === "transfer" && (
         <TransferSheet
