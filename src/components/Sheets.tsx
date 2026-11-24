@@ -2,10 +2,10 @@ import { useState, type ReactNode } from "react";
 import type { Categories, Recurring, Transaction, TxType, Wallet } from "../types";
 import { prevMonth, today, walletIdOf } from "../lib/domain";
 
-export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Sheet({ title, onClose, children, live }: { title: string; onClose: () => void; children: ReactNode; live?: boolean }) {
   return (
-    <div className="ov" onClick={onClose}>
-      <div className="sheet glass" onClick={(e) => e.stopPropagation()}>
+    <div className={`ov${live ? " clear" : ""}`} onClick={onClose}>
+      <div className={`sheet glass${live ? " compact" : ""}`} onClick={(e) => e.stopPropagation()}>
         <h2>{title}</h2>
         {children}
       </div>
