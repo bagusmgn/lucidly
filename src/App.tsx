@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
-import type { Budgets, Recurring, Transaction, TxType } from "./types";
-import { budgetStorage, recurringStorage, txStorage } from "./lib/storage";
-import { fmtDate, icon, monthTrend, parseBackup, rp, runRecurring, sortTx, summarize, today } from "./lib/domain";
+import type { Budgets, Categories, Recurring, Transaction, Transfer, TxType, Wallet } from "./types";
+import { budgetStorage, categoryStorage, recurringStorage, transferStorage, txStorage, walletStorage } from "./lib/storage";
+import { fmtDate, icon, monthLabel, monthTrend, parseBackup, rp, runRecurring, shiftMonth, sortTx, summarize, today, walletBalances, walletIdOf } from "./lib/domain";
 import { Donut, PALETTE, Trend } from "./components/Charts";
 import { BudgetForm, DataSheet, RecForm, TxForm } from "./components/Sheets";
+import { CategorySheet, TransferSheet, WalletSheet } from "./components/Manage";
 
 type Action =
   | { type: "add"; tx: Transaction }
   | { type: "remove"; id: number }
+  | { type: "update"; tx: Transaction }
   | { type: "replace"; list: Transaction[] };
 
 function reducer(s: Transaction[], a: Action): Transaction[] {
   switch (a.type) {
     case "add": return sortTx([a.tx, ...s]);
     case "remove": return s.filter((t) => t.id !== a.id);
+    case "update": return sortTx(s.map((t) => (t.id === a.tx.id ? a.tx : t)));
     case "replace": return sortTx(a.list);
   }
 }
@@ -30,37 +33,73 @@ export default function App() {
   const [budgets, setBudgets] = useState<Budgets>(() => budgetStorage.load());
   const [recs, setRecs] = useState<Recurring[]>(init.recs);
   const [tab, setTab] = useState<"all" | TxType>("all");
-  const [sheet, setSheet] = useState<null | "tx" | "budget" | "rec" | "data">(null);
+  const [sheet, setSheet] = useState<null | "tx" | "budget" | "rec" | "data" | "cats" | "wallets" | "transfer">(null);
+  const [cats, setCats] = useState<Categories>(() => categoryStorage.load());
+  const [wallets, setWallets] = useState<Wallet[]>(() => walletStorage.load());
+  const [transfers, setTransfers] = useState<Transfer[]>(() => transferStorage.load());
+  const [editing, setEditing] = useState<Transaction | null>(null);
+  const [undo, setUndo] = useState<Transaction | null>(null);
+  const [month, setMonth] = useState(() => today().slice(0, 7));
 
   useEffect(() => txStorage.save(tx), [tx]);
   useEffect(() => budgetStorage.save(budgets), [budgets]);
   useEffect(() => recurringStorage.save(recs), [recs]);
+  useEffect(() => categoryStorage.save(cats), [cats]);
+  useEffect(() => walletStorage.save(wallets), [wallets]);
+  useEffect(() => transferStorage.save(transfers), [transfers]);
+  useEffect(() => {
+    if (!undo) return;
+    const id = setTimeout(() => setUndo(null), 5000);
+    return () => clearTimeout(id);
+  }, [undo]);
 
   const mk = today().slice(0, 7);
-  const { inc, exp, byCat, monthExp } = useMemo(() => summarize(tx, mk), [tx, mk]);
-  const trend = useMemo(() => monthTrend(tx), [tx]);
+  const { inc, exp, monthExp } = useMemo(() => summarize(tx, month), [tx, month]);
+  const trend = useMemo(() => monthTrend(tx, month), [tx, month]);
   const monthItems = Object.entries(monthExp).sort((a, b) => b[1] - a[1]);
-  const monthTotal = monthItems.reduce((s, [, v]) => s + v, 0);
-  const list = tx.filter((t) => tab === "all" || t.type === tab);
+  const monthTotal = monthItems.reduce((sum, [, v]) => sum + v, 0);
+  const list = tx.filter((t) => t.date.slice(0, 7) === month && (tab === "all" || t.type === tab));
   const budgetList = Object.entries(budgets);
-  const warns = budgetList.filter(([c, b]) => (monthExp[c] ?? 0) / b >= 0.8);
+  const warns = month === mk ? budgetList.filter(([c, b]) => (monthExp[c] ?? 0) / b >= 0.8) : [];
   const totalBudget = budgetList.reduce((sum, [, b]) => sum + b, 0);
   const totalSpent = budgetList.reduce((sum, [c]) => sum + (monthExp[c] ?? 0), 0);
   const totalRatio = totalBudget > 0 ? totalSpent / totalBudget : 0;
 
-  const getJson = () => JSON.stringify({ version: 1, tx, budgets, recurring: recs }, null, 2);
+  const balances = useMemo(() => walletBalances(wallets, tx, transfers), [wallets, tx, transfers]);
+  const totalBalance = Object.values(balances).reduce((a, b) => a + b, 0);
+  const wName = (id: number) => wallets.find((w) => w.id === id)?.name ?? "?";
+  const used = useMemo(() => {
+    const u = new Set<number>();
+    tx.forEach((t) => u.add(walletIdOf(t, wallets)));
+    recs.forEach((r) => u.add(walletIdOf(r, wallets)));
+    transfers.forEach((t) => { u.add(t.from); u.add(t.to); });
+    return u;
+  }, [tx, recs, transfers, wallets]);
+
+  const getJson = () => JSON.stringify({ version: 1, tx, budgets, recurring: recs, categories: cats, wallets, transfers }, null, 2);
   const doImport = (raw: unknown) => {
     const b = parseBackup(raw);
     dispatch({ type: "replace", list: b.tx });
     if (b.budgets) setBudgets(b.budgets);
     if (b.recurring) setRecs(b.recurring);
+    if (b.categories) setCats(b.categories);
+    if (b.wallets) setWallets(b.wallets);
+    if (b.transfers) setTransfers(b.transfers);
     return b.tx.length;
   };
-  const close = () => setSheet(null);
+  const close = () => { setSheet(null); setEditing(null); };
+  const remove = (t: Transaction) => { dispatch({ type: "remove", id: t.id }); setUndo(t); };
+  const saveTx = (t: Transaction) => (editing ? dispatch({ type: "update", tx: t }) : dispatch({ type: "add", tx: t }));
 
   return (
     <>
       <h1>Lucidly</h1>
+
+      <div className="mnav glass">
+        <button aria-label="Bulan sebelumnya" onClick={() => setMonth((m) => shiftMonth(m, -1))}>◀</button>
+        <b>{monthLabel(month)}</b>
+        <button aria-label="Bulan berikutnya" disabled={month >= mk} onClick={() => setMonth((m) => shiftMonth(m, 1))}>▶</button>
+      </div>
 
       {warns.length > 0 && (
         <div className="warn glass">
@@ -73,7 +112,7 @@ export default function App() {
 
       <div className="hero glass">
         <div className="lbl">Total saldo</div>
-        <div className="bal">{rp(inc - exp)}</div>
+        <div className="bal">{rp(totalBalance)}</div>
         <div className="row">
           <div className="mini"><span className="lbl">Pemasukan</span><b className="inc">{rp(inc)}</b></div>
           <div className="mini"><span className="lbl">Pengeluaran</span><b className="exp">{rp(exp)}</b></div>
@@ -81,7 +120,31 @@ export default function App() {
       </div>
 
       <div className="sec glass">
-        <div className="hd"><h2>Anggaran bulan ini</h2><button className="lnk" onClick={() => setSheet("budget")}>Atur</button></div>
+        <div className="hd">
+          <h2>Dompet</h2>
+          <div className="hdb">
+            <button className="lnk" disabled={wallets.length < 2} onClick={() => setSheet("transfer")}>Transfer</button>
+            <button className="lnk" onClick={() => setSheet("wallets")}>Kelola</button>
+          </div>
+        </div>
+        {wallets.map((w) => (
+          <div className="mrow" key={w.id}><span>{w.icon} {w.name}</span><b>{rp(balances[w.id] ?? 0)}</b></div>
+        ))}
+        {transfers.length > 0 && (
+          <>
+            <div className="lbl" style={{ margin: "12px 0 2px" }}>Transfer terakhir</div>
+            {transfers.slice(0, 5).map((t) => (
+              <div className="mrow" key={t.id}>
+                <span className="lbl">{fmtDate(t.date)} · {wName(t.from)} → {wName(t.to)}</span>
+                <span>{rp(t.amount)} <button className="del" aria-label="Hapus transfer" onClick={() => setTransfers((x) => x.filter((y) => y.id !== t.id))}>✕</button></span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      <div className="sec glass">
+        <div className="hd"><h2>Anggaran</h2><button className="lnk" onClick={() => setSheet("budget")}>Atur</button></div>
         {budgetList.length > 0 && (
           <div className="mini" style={{ marginBottom: 14 }}>
             <div className="top" style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
@@ -106,7 +169,7 @@ export default function App() {
             return (
               <div className="cat" key={c}>
                 <div className="top">
-                  <span>{icon("expense", c)} {c}</span>
+                  <span>{icon(cats, "expense", c)} {c}</span>
                   <span style={p > 1 ? { color: "var(--exp)" } : undefined}>{rp(s)} / {rp(b)}</span>
                 </div>
                 <div className="bar"><i style={{ width: `${Math.min(100, Math.round(p * 100))}%`, background: col }} /></div>
@@ -125,7 +188,7 @@ export default function App() {
 
       {monthItems.length > 0 && (
         <div className="sec glass">
-          <h2>Komposisi bulan ini</h2>
+          <h2>Komposisi pengeluaran</h2>
           <div className="dn">
             <Donut items={monthItems} total={monthTotal} />
             <div className="lg">
@@ -137,18 +200,6 @@ export default function App() {
         </div>
       )}
 
-      {byCat.length > 0 && (
-        <div className="sec glass">
-          <h2>Pengeluaran per kategori</h2>
-          {byCat.map(([c, v]) => (
-            <div className="cat" key={c}>
-              <div className="top"><span>{icon("expense", c)} {c}</span><span>{rp(v)}</span></div>
-              <div className="bar"><i style={{ width: `${Math.round((v / exp) * 100)}%` }} /></div>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="sec glass">
         <h2>Riwayat</h2>
         <div className="seg">
@@ -157,14 +208,14 @@ export default function App() {
           ))}
         </div>
         {list.length === 0 ? (
-          <div className="empty">Belum ada transaksi. Tekan + untuk mulai mencatat.</div>
+          <div className="empty">Belum ada transaksi di bulan ini. Tekan + untuk mulai mencatat.</div>
         ) : (
           list.map((t) => (
-            <div className="tx" key={t.id}>
-              <div className="ic">{icon(t.type, t.category)}</div>
-              <div className="m"><b>{t.note || t.category}</b><span>{t.category} · {fmtDate(t.date)}</span></div>
+            <div className="tx" key={t.id} onClick={() => setEditing(t)}>
+              <div className="ic">{icon(cats, t.type, t.category)}</div>
+              <div className="m"><b>{t.note || t.category}</b><span>{t.category} · {fmtDate(t.date)}{wallets.length > 1 ? ` · ${wName(walletIdOf(t, wallets))}` : ""}</span></div>
               <div className={`amt ${t.type === "income" ? "inc" : "exp"}`}>{t.type === "income" ? "+" : "−"}{rp(t.amount)}</div>
-              <button className="del" aria-label="Hapus" onClick={() => dispatch({ type: "remove", id: t.id })}>✕</button>
+              <button className="del" aria-label="Hapus" onClick={(e) => { e.stopPropagation(); remove(t); }}>✕</button>
             </div>
           ))
         )}
@@ -177,7 +228,7 @@ export default function App() {
         ) : (
           recs.map((r) => (
             <div className="tx" key={r.id}>
-              <div className="ic">{icon(r.type, r.category)}</div>
+              <div className="ic">{icon(cats, r.type, r.category)}</div>
               <div className="m"><b>{r.note || r.category}</b><span>Setiap tanggal {r.day}</span></div>
               <div className={`amt ${r.type === "income" ? "inc" : "exp"}`}>{rp(r.amount)}</div>
               <button className="del" aria-label="Hapus" onClick={() => setRecs((x) => x.filter((y) => y.id !== r.id))}>✕</button>
@@ -187,22 +238,44 @@ export default function App() {
       </div>
 
       <div className="sec glass">
+        <div className="hd"><h2>Kategori</h2><button className="lnk" onClick={() => setSheet("cats")}>Kelola</button></div>
+        <div className="lbl">Tambah atau hapus kategori pengeluaran dan pemasukan.</div>
+      </div>
+
+      <div className="sec glass">
         <div className="hd"><h2>Cadangan data</h2><button className="lnk" onClick={() => setSheet("data")}>Ekspor / Impor</button></div>
         <div className="lbl">Simpan salinan JSON agar data aman jika cache browser dibersihkan.</div>
       </div>
 
       <button className="fab" aria-label="Tambah transaksi" onClick={() => setSheet("tx")}>+</button>
 
-      {sheet === "tx" && <TxForm onSave={(t) => dispatch({ type: "add", tx: t })} onClose={close} />}
+      {undo && (
+        <div className="toast glass">
+          <span>Transaksi dihapus</span>
+          <button onClick={() => { dispatch({ type: "add", tx: undo }); setUndo(null); }}>Urungkan</button>
+        </div>
+      )}
+
+      {(sheet === "tx" || editing) && <TxForm key={editing?.id ?? "new"} initial={editing ?? undefined} cats={cats} wallets={wallets} onSave={saveTx} onClose={close} />}
       {sheet === "budget" && (
         <BudgetForm
+          cats={cats}
           budgets={budgets}
           onSave={(c, v) => setBudgets((b) => { const n = { ...b }; if (v > 0) n[c] = v; else delete n[c]; return n; })}
           onClose={close}
         />
       )}
-      {sheet === "rec" && <RecForm onSave={(r) => setRecs((x) => [...x, r])} onClose={close} />}
+      {sheet === "rec" && <RecForm cats={cats} wallets={wallets} onSave={(r) => setRecs((x) => [...x, r])} onClose={close} />}
       {sheet === "data" && <DataSheet getJson={getJson} onImport={doImport} onClose={close} />}
+      {sheet === "cats" && <CategorySheet cats={cats} onChange={setCats} onClose={close} />}
+      {sheet === "wallets" && <WalletSheet wallets={wallets} balances={balances} used={used} onChange={setWallets} onClose={close} />}
+      {sheet === "transfer" && (
+        <TransferSheet
+          wallets={wallets}
+          onSave={(t) => setTransfers((x) => [t, ...x].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id))}
+          onClose={close}
+        />
+      )}
     </>
   );
 }
