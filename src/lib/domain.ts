@@ -5,6 +5,12 @@ export const CATS: Record<TxType, [string, string][]> = {
   income: [["Gaji", "💼"], ["Bonus", "🎁"], ["Investasi", "📈"], ["Lainnya", "💰"]],
 };
 
+export const CATEGORY_ICONS = [
+  "📦", "🍜", "🍔", "☕", "🛒", "🛍️", "🚗", "🚌", "⛽", "🧾", "💡", "🏠", "📱", "🎬", "🎮", "🎁", "💊", "🏥",
+  "📚", "🎓", "✈️", "🐾", "👶", "💇", "🏋️", "🔧", "💼", "💰", "📈", "🏦", "💳",
+];
+export const WALLET_ICONS = ["👛", "💵", "🏦", "💳", "📱", "💰", "🐷", "🏧", "💼"];
+
 export const icon = (cats: Categories, t: TxType, c: string) => cats[t].find((x) => x[0] === c)?.[1] ?? "💸";
 
 /** Dompet efektif sebuah transaksi; tanpa/dengan walletId tidak dikenal jatuh ke dompet pertama. */
