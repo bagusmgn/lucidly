@@ -1,21 +1,31 @@
 import { useState } from "react";
 import type { Categories, Transfer, TxType, Wallet } from "../types";
-import { rp, today } from "../lib/domain";
+import { CATEGORY_ICONS, rp, today, WALLET_ICONS } from "../lib/domain";
 import { AmountInput, Field, Sheet, WalletSelect } from "./Sheets";
+
+function IconSelect({ value, options, onChange }: { value: string; options: string[]; onChange: (v: string) => void }) {
+  return (
+    <select className="icon-select" aria-label="Pilih ikon" value={value} onChange={(e) => onChange(e.target.value)}>
+      {options.map((i) => (
+        <option key={i} value={i}>{i}</option>
+      ))}
+    </select>
+  );
+}
 
 export function CategorySheet({ cats, onChange, onClose }: { cats: Categories; onChange: (c: Categories) => void; onClose: () => void }) {
   const [type, setType] = useState<TxType>("expense");
-  const [icon, setIcon] = useState("");
+  const [icon, setIcon] = useState("📦");
   const [name, setName] = useState("");
   const list = cats[type];
   const n = name.trim();
   const dup = list.some((c) => c[0].toLowerCase() === n.toLowerCase());
   const add = () => {
     if (!n || dup) return;
-    const next: [string, string][] = [...list, [n, icon.trim() || "📦"]];
+    const next: [string, string][] = [...list, [n, icon]];
     onChange({ ...cats, [type]: next });
     setName("");
-    setIcon("");
+    setIcon("📦");
   };
   const del = (c: string) => onChange({ ...cats, [type]: list.filter((x) => x[0] !== c) });
   return (
@@ -34,7 +44,7 @@ export function CategorySheet({ cats, onChange, onClose }: { cats: Categories; o
       </div>
       <div className="row">
         <div style={{ width: 84 }}>
-          <Field label="Ikon"><input type="text" maxLength={4} placeholder="📦" value={icon} onChange={(e) => setIcon(e.target.value)} /></Field>
+          <Field label="Ikon"><IconSelect value={icon} options={CATEGORY_ICONS} onChange={setIcon} /></Field>
         </div>
         <div style={{ flex: 1 }}>
           <Field label="Nama"><input type="text" placeholder="Contoh: Kopi" value={name} onChange={(e) => setName(e.target.value)} /></Field>
@@ -47,15 +57,15 @@ export function CategorySheet({ cats, onChange, onClose }: { cats: Categories; o
 }
 
 export function WalletSheet({ wallets, balances, used, onChange, onClose }: { wallets: Wallet[]; balances: Record<number, number>; used: Set<number>; onChange: (w: Wallet[]) => void; onClose: () => void }) {
-  const [icon, setIcon] = useState("");
+  const [icon, setIcon] = useState("👛");
   const [name, setName] = useState("");
   const [initial, setInitial] = useState("");
   const n = name.trim();
   const add = () => {
     if (!n) return;
-    onChange([...wallets, { id: Date.now(), name: n, icon: icon.trim() || "👛", initial: Number(initial) || 0 }]);
+    onChange([...wallets, { id: Date.now(), name: n, icon, initial: Number(initial) || 0 }]);
     setName("");
-    setIcon("");
+    setIcon("👛");
     setInitial("");
   };
   return (
@@ -73,7 +83,7 @@ export function WalletSheet({ wallets, balances, used, onChange, onClose }: { wa
       </div>
       <div className="row">
         <div style={{ width: 84 }}>
-          <Field label="Ikon"><input type="text" maxLength={4} placeholder="👛" value={icon} onChange={(e) => setIcon(e.target.value)} /></Field>
+          <Field label="Ikon"><IconSelect value={icon} options={WALLET_ICONS} onChange={setIcon} /></Field>
         </div>
         <div style={{ flex: 1 }}>
           <Field label="Nama"><input type="text" placeholder="Contoh: BCA" value={name} onChange={(e) => setName(e.target.value)} /></Field>
